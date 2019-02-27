@@ -14,6 +14,7 @@ namespace AO.PriceAdjustments
                 priceService.GetData();
                 priceService.EnsureAllCompetitorsExist();
                 priceService.SaveCompetitorPrices();
+
             }
             catch(Exception ex)
             {
