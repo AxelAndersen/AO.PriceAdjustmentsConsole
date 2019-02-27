@@ -44,15 +44,27 @@ namespace AO.PriceAdjustments.Services
                         var competitor = context.Competitor.Where(c => c.CompetitorName == priceshapeScraper.name).FirstOrDefault();
                         if (competitor != null)
                         {
-                            var competitorPrices = new CompetitorPrices
+                            var competorPrice = context.CompetitorPrices.Where(c => c.EAN == item.gtin && c.CompetitorId == competitor.Id).FirstOrDefault();
+                            if (competorPrice == null)
                             {
-                                CompetitorId = competitor.Id,
-                                EAN = item.gtin,
-                                NewPrice = Convert.ToDecimal(priceshapeScraper.price),
-                                NewPriceTime = DateTime.Now,
-                                LastPriceTime = Convert.ToDateTime("01-01-1970")
-                            };
-                            context.Add(competitorPrices);
+                                var competitorPrices = new CompetitorPrices
+                                {
+                                    CompetitorId = competitor.Id,
+                                    EAN = item.gtin,
+                                    NewPrice = Convert.ToDecimal(priceshapeScraper.price),
+                                    NewPriceTime = DateTime.Now,
+                                    LastPriceTime = Convert.ToDateTime("01-01-1970")
+                                };
+                                context.Add(competitorPrices);
+                            }
+                            else
+                            {
+                                competorPrice.LastPrice = competorPrice.NewPrice;
+                                competorPrice.LastPriceTime = competorPrice.NewPriceTime;
+                                competorPrice.NewPrice = Convert.ToDecimal(priceshapeScraper.price);
+                                competorPrice.NewPriceTime = DateTime.Now;
+                                context.Update(competorPrice);
+                            }
                         }
                     }
                 }
