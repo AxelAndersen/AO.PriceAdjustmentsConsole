@@ -3,6 +3,7 @@ using AO.PriceAdjustments.Models;
 using Microsoft.Extensions.Configuration;
 using Newtonsoft.Json;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -13,6 +14,7 @@ namespace AO.PriceAdjustments.Services
     {
         IConfiguration _config;
         RootObject _root;
+        List<CompetitorPrices> _newPricedItems = null;
 
         public PriceService()
         {
@@ -72,7 +74,7 @@ namespace AO.PriceAdjustments.Services
             }
         }
 
-        public void EnsureAllCompetitorsExist()
+        public void EnsureAllEntitiesExist()
         {
             foreach (Item item in _root.items)
             {
@@ -84,7 +86,7 @@ namespace AO.PriceAdjustments.Services
                         if (competitor == null)
                         {
                             Competitor newCompetitor = new Competitor()
-                            {                                
+                            {
                                 CompetitorName = priceshapeScraper.name
                             };
 
@@ -93,6 +95,30 @@ namespace AO.PriceAdjustments.Services
                         }
                     }
                 }
+
+                using (var context = new MasterContext())
+                {
+                    var priceAdjustment = context.CompetitorPriceAdjustments.Where(c => c.EAN == item.gtin).FirstOrDefault();
+                    if (priceAdjustment == null)
+                    {
+                        CompetitorPriceAdjustments newPriceAdjustment = new CompetitorPriceAdjustments()
+                        {
+                            EAN = item.gtin,
+                            ProductName = item.brand + " " + item.title
+                        };
+
+                        context.Add(newPriceAdjustment);
+                        context.SaveChanges();
+                    }
+                }
+            }
+        }
+
+        public void GetNewPricedItems()
+        {            
+            using (var context = new MasterContext())
+            {
+                _newPricedItems = context.CompetitorPrices.Where(c => c.NewPrice != c.LastPrice).ToList();
             }
         }
     }

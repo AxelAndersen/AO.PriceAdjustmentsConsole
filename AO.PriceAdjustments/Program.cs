@@ -12,9 +12,9 @@ namespace AO.PriceAdjustments
             {
                 PriceService priceService = new PriceService();
                 priceService.GetData();
-                priceService.EnsureAllCompetitorsExist();
+                priceService.EnsureAllEntitiesExist();
                 priceService.SaveCompetitorPrices();
-
+                priceService.GetNewPricedItems();
             }
             catch(Exception ex)
             {
