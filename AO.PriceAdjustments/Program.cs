@@ -1,26 +1,35 @@
-﻿using AO.PriceAdjustments.Models;
-using AO.PriceAdjustments.Services;
-using System;
+﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using NLog.Extensions.Logging;
 
 namespace AO.PriceAdjustments
 {
     class Program
-    {
+    {        
         static void Main(string[] args)
         {
-            try
-            {
-                PriceService priceService = new PriceService();
-                priceService.GetData();
-                priceService.EnsureAllEntitiesExist();
-                priceService.SaveCompetitorPrices();
-                priceService.GetNewPricedItems();
-            }
-            catch(Exception ex)
-            {
-                Console.WriteLine(ex.Message);
-            }
-            Console.Read();
+            var servicesProvider = BuildDi();
+            var startUp = servicesProvider.GetRequiredService<StartUp>();
+
+            startUp.Run();
+
+            NLog.LogManager.Shutdown();
+        }
+
+        private static ServiceProvider BuildDi()
+        {
+            return new ServiceCollection()
+                .AddLogging(builder =>
+                {
+                    builder.SetMinimumLevel(LogLevel.Trace);
+                    builder.AddNLog(new NLogProviderOptions
+                    {
+                        CaptureMessageTemplates = true,
+                        CaptureMessageProperties = true
+                    });
+                })
+                .AddTransient<StartUp>()
+                .BuildServiceProvider();
         }
     }
 }
