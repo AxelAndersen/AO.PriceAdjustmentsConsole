@@ -1,35 +1,102 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using AO.PriceAdjustments.Services;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NLog.Extensions.Logging;
+using System;
+using System.IO;
+using System.Net;
+using System.Net.Mail;
 
 namespace AO.PriceAdjustments
 {
     class Program
-    {        
+    {
+        private static IServiceProvider _serviceProvider;
+        public static IConfigurationRoot Configuration { get; set; }
+
         static void Main(string[] args)
         {
-            var servicesProvider = BuildDi();
-            var startUp = servicesProvider.GetRequiredService<StartUp>();
+            RegisterServices();
+            string errorMessage = "Error calling PriceService constructor";
+            try
+            {
+                var priceService = _serviceProvider.GetService<IPriceService>();
 
-            startUp.Run();
+                errorMessage = "Error getting data from PriceShape service";
+                priceService.GetData();
 
-            NLog.LogManager.Shutdown();
+                errorMessage = "Error ensuring all data exist in MasterDatabase";
+                priceService.EnsureAllEntitiesExist();
+
+                errorMessage = "Error saving prices to CompetitorPrices in MasterDatabase";
+                priceService.SaveCompetitorPrices();
+
+                errorMessage = "Error getting new priced items";
+                priceService.GetNewPricedItems();
+            }
+            catch (Exception ex)
+            {
+                errorMessage += Environment.NewLine + ex.Message;
+                errorMessage += Environment.NewLine + ex.ToString();
+
+                var logger = _serviceProvider.GetService<ILogger<Program>>();
+                logger.LogError(errorMessage);
+
+                var mailService = _serviceProvider.GetService<IMailService>();
+                mailService.SendMail("Error: " + ex.Message, errorMessage, "axel@friliv.dk");
+            }
+            
+            DisposeServices();
         }
 
-        private static ServiceProvider BuildDi()
+        private static void RegisterServices()
         {
-            return new ServiceCollection()
+            var configBuilder = new ConfigurationBuilder()
+                .SetBasePath(Directory.GetCurrentDirectory())
+               .AddJsonFile("appsettings.json");
+
+            Configuration = configBuilder.Build();
+
+            var collection = new ServiceCollection();
+            collection
+                .AddScoped<IPriceService, PriceService>()
+                .AddScoped<IMailService, MailService>()
                 .AddLogging(builder =>
-                {
-                    builder.SetMinimumLevel(LogLevel.Trace);
-                    builder.AddNLog(new NLogProviderOptions
                     {
-                        CaptureMessageTemplates = true,
-                        CaptureMessageProperties = true
+                        builder.SetMinimumLevel(LogLevel.Trace);
+                        builder.AddNLog(new NLogProviderOptions
+                        {
+                            CaptureMessageTemplates = true,
+                            CaptureMessageProperties = true
+                        });
+                    })
+                .AddSingleton<IConfiguration>(provider => Configuration)
+                .AddScoped<SmtpClient>((serviceProvider) =>
+                    {
+                        var config = serviceProvider.GetRequiredService<IConfiguration>();
+                        return new SmtpClient()
+                        {
+                            Host = config.GetValue<String>("Email:Smtp:Host"),
+                            Port = config.GetValue<int>("Email:Smtp:Port"),
+                            Credentials = new NetworkCredential(
+                                                    config.GetValue<String>("Email:Smtp:Username"),
+                                                    config.GetValue<String>("Email:Smtp:Password"))
+                        };
                     });
-                })
-                .AddTransient<StartUp>()
-                .BuildServiceProvider();
+            _serviceProvider = collection.BuildServiceProvider();
         }
+
+        private static void DisposeServices()
+        {
+            if (_serviceProvider == null)
+            {
+                return;
+            }
+            if (_serviceProvider is IDisposable)
+            {
+                ((IDisposable)_serviceProvider).Dispose();
+            }
+        }       
     }
 }

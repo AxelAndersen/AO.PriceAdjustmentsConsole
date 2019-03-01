@@ -1,25 +1,32 @@
 ﻿using AO.PriceAdjustments.Data;
 using AO.PriceAdjustments.Models;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.Mail;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace AO.PriceAdjustments.Services
 {
-    public class PriceService
+    public class PriceService : IPriceService
     {
-        IConfiguration _config;
-        RootObject _root;
-        List<CompetitorPrices> _newPricedItems = null;
+        private IConfiguration _config;
+        private RootObject _root;
+        private List<CompetitorPrices> _newPricedItems = null;
+        private ILogger<PriceService> _logger;        
 
-        public PriceService()
+        public PriceService(ILogger<PriceService> logger, SmtpClient smtpClient, IConfiguration config)
         {
             var builder = new ConfigurationBuilder().SetBasePath(Directory.GetCurrentDirectory()).AddJsonFile("appsettings.json");
-            _config = new ConfigurationBuilder().AddJsonFile("appsettings.json", true, true).Build();
+            _config = config; // new ConfigurationBuilder().AddJsonFile("appsettings.json", true, true).Build();
+            _logger = logger;           
         }
 
         /// <summary>
@@ -28,8 +35,8 @@ namespace AO.PriceAdjustments.Services
         /// <para>We end up deserializing the json to RootObject containing all products and prices</para>
         /// </summary>
         public void GetData()
-        {
-            string path = _config["PriceShape.JsonPath"];
+        {            
+            string path = _config["General:PriceShape.JsonPath"];
             string json = string.Empty;
 
             using (WebClient wc = new WebClient())
@@ -39,6 +46,8 @@ namespace AO.PriceAdjustments.Services
 
             _root = JsonConvert.DeserializeObject<RootObject>(json);
         }
+
+        
 
         /// <summary>
         /// Here we create Competitor and CompetitorPriceAdjustments if they dont exist already.
@@ -111,7 +120,7 @@ namespace AO.PriceAdjustments.Services
                                     NewPriceTime = DateTime.Now,
                                     LastPriceTime = Convert.ToDateTime("01-01-1970")
                                 };
-                                context.Add(competitorPrices);
+                                context.Add(competitorPrices);                                
                             }
                             else
                             {

@@ -23,7 +23,7 @@ namespace AO.PriceAdjustments.Data
 
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {
-            optionsBuilder.UseSqlServer(_config["MasterDatabaseConnection"]);
+            optionsBuilder.UseSqlServer(_config["General:MasterDatabaseConnection"]);
         }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
