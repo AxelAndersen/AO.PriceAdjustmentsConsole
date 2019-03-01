@@ -1,4 +1,6 @@
-﻿using AO.PriceAdjustments.Services;
+﻿using AO.PriceAdjustments.Data;
+using AO.PriceAdjustments.Services;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -20,7 +22,7 @@ namespace AO.PriceAdjustments
         {
             RegisterServices();
 
-            _logger.LogInformation("AO.PriceAdjustments started");
+            _logger.LogWarning("AO.PriceAdjustments started");
 
             string errorMessage = "Error calling PriceService constructor";
             try
@@ -38,6 +40,8 @@ namespace AO.PriceAdjustments
 
                 errorMessage = "Error getting new priced items";
                 priceService.GetNewPricedItems();
+
+                priceService.GetOwnItems();
             }
             catch (Exception ex)
             {
@@ -86,7 +90,9 @@ namespace AO.PriceAdjustments
                                                     config.GetValue<String>("Email:Smtp:Username"),
                                                     config.GetValue<String>("Email:Smtp:Password"))
                         };
-                    });
+                    })                
+                .AddDbContext<MasterContext>(options => options.UseSqlServer(Configuration["General:MasterDatabaseConnection"]));
+            ;
             _serviceProvider = collection.BuildServiceProvider();
 
             _logger = _serviceProvider.GetService<ILogger<Program>>();

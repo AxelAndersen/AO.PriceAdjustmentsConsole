@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace AO.PriceAdjustments.Data
 {
@@ -9,6 +10,7 @@ namespace AO.PriceAdjustments.Data
 
         public string ProductName { get; set; }
 
+        [Column(TypeName = "decimal(18,2)")]
         public decimal CurrentPrice { get; set; }
 
         public bool AllowAutomaticUp { get; set; }

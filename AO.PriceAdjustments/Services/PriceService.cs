@@ -20,13 +20,15 @@ namespace AO.PriceAdjustments.Services
         private IConfiguration _config;
         private RootObject _root;
         private List<CompetitorPrices> _newPricedItems = null;
-        private ILogger<PriceService> _logger;        
+        private ILogger<PriceService> _logger;
+        private MasterContext _masterContext;
 
-        public PriceService(ILogger<PriceService> logger, SmtpClient smtpClient, IConfiguration config)
+        public PriceService(ILogger<PriceService> logger, SmtpClient smtpClient, IConfiguration config, MasterContext masterContext)
         {
             var builder = new ConfigurationBuilder().SetBasePath(Directory.GetCurrentDirectory()).AddJsonFile("appsettings.json");
             _config = config; // new ConfigurationBuilder().AddJsonFile("appsettings.json", true, true).Build();
-            _logger = logger;           
+            _logger = logger;
+            _masterContext = masterContext;
         }
 
         /// <summary>
@@ -47,8 +49,6 @@ namespace AO.PriceAdjustments.Services
             _root = JsonConvert.DeserializeObject<RootObject>(json);
         }
 
-        
-
         /// <summary>
         /// Here we create Competitor and CompetitorPriceAdjustments if they dont exist already.
         /// <para>CompetitorPriceAdjustments are used for configuring whether a product can be automatically price adjusted</para>
@@ -58,45 +58,40 @@ namespace AO.PriceAdjustments.Services
             foreach (Item item in _root.items)
             {
                 foreach (PriceshapeScraper priceshapeScraper in item.priceshape_scraper)
-                {                    
-                    using (var context = new MasterContext())
-                    {
-                        var competitor = context.Competitor.Where(c => c.CompetitorName == priceshapeScraper.name).FirstOrDefault();
-                        if (competitor == null)
-                        {
-                            Competitor newCompetitor = new Competitor()
-                            {
-                                CompetitorName = priceshapeScraper.name
-                            };
-
-                            context.Add(newCompetitor);
-                            context.SaveChanges();
-                        }
-                    }
-                }
-
-                using (var context = new MasterContext())
                 {
-                    var priceAdjustment = context.CompetitorPriceAdjustments.Where(c => c.EAN == item.gtin).FirstOrDefault();
-                    if (priceAdjustment == null)
+                    var competitor = _masterContext.Competitor.Where(c => c.CompetitorName == priceshapeScraper.name).FirstOrDefault();
+                    if (competitor == null)
                     {
-                        CompetitorPriceAdjustments newPriceAdjustment = new CompetitorPriceAdjustments()
+                        Competitor newCompetitor = new Competitor()
                         {
-                            EAN = item.gtin,
-                            ProductName = item.brand + " " + item.title,
-                            CurrentPrice = Convert.ToDecimal(item.clear_price)
+                            CompetitorName = priceshapeScraper.name
                         };
 
-                        context.Add(newPriceAdjustment);                        
+                        _masterContext.Add(newCompetitor);
+                        _masterContext.SaveChanges();
                     }
-                    else
-                    {
-                        priceAdjustment.CurrentPrice = Convert.ToDecimal(item.clear_price);
-                        priceAdjustment.ProductName = item.brand + " " + item.title;
-                        context.Update(priceAdjustment);
-                    }
-                    context.SaveChanges();
                 }
+
+                var priceAdjustment = _masterContext.CompetitorPriceAdjustments.Where(c => c.EAN == item.gtin).FirstOrDefault();
+                if (priceAdjustment == null)
+                {
+                    CompetitorPriceAdjustments newPriceAdjustment = new CompetitorPriceAdjustments()
+                    {
+                        EAN = item.gtin,
+                        ProductName = item.brand + " " + item.title,
+                        CurrentPrice = Convert.ToDecimal(item.clear_price)
+                    };
+
+                    _masterContext.Add(newPriceAdjustment);
+                }
+                else
+                {
+                    priceAdjustment.CurrentPrice = Convert.ToDecimal(item.clear_price);
+                    priceAdjustment.ProductName = item.brand + " " + item.title;
+                    _masterContext.Update(priceAdjustment);
+                }
+                _masterContext.SaveChanges();
+
             }
         }
 
@@ -107,40 +102,37 @@ namespace AO.PriceAdjustments.Services
         /// </summary>
         public void SaveCompetitorPrices()
         {
-            using (var context = new MasterContext())
+            foreach (Item item in _root.items)
             {
-                foreach (Item item in _root.items)
+                foreach (PriceshapeScraper priceshapeScraper in item.priceshape_scraper)
                 {
-                    foreach (PriceshapeScraper priceshapeScraper in item.priceshape_scraper)
+                    var competitor = _masterContext.Competitor.Where(c => c.CompetitorName == priceshapeScraper.name).FirstOrDefault();
+                    if (competitor != null)
                     {
-                        var competitor = context.Competitor.Where(c => c.CompetitorName == priceshapeScraper.name).FirstOrDefault();
-                        if (competitor != null)
+                        var competorPrice = _masterContext.CompetitorPrices.Where(c => c.EAN == item.gtin && c.CompetitorId == competitor.Id).FirstOrDefault();
+                        if (competorPrice == null)
                         {
-                            var competorPrice = context.CompetitorPrices.Where(c => c.EAN == item.gtin && c.CompetitorId == competitor.Id).FirstOrDefault();
-                            if (competorPrice == null)
+                            var competitorPrices = new CompetitorPrices
                             {
-                                var competitorPrices = new CompetitorPrices
-                                {
-                                    CompetitorId = competitor.Id,
-                                    EAN = item.gtin,
-                                    NewPrice = Convert.ToDecimal(priceshapeScraper.clear_price),
-                                    NewPriceTime = DateTime.Now,
-                                    LastPriceTime = Convert.ToDateTime("01-01-1970")
-                                };
-                                context.Add(competitorPrices);                                
-                            }
-                            else
-                            {
-                                competorPrice.LastPrice = competorPrice.NewPrice;
-                                competorPrice.LastPriceTime = competorPrice.NewPriceTime;
-                                competorPrice.NewPrice = Convert.ToDecimal(priceshapeScraper.clear_price);
-                                competorPrice.NewPriceTime = DateTime.Now;
-                                context.Update(competorPrice);
-                            }
+                                CompetitorId = competitor.Id,
+                                EAN = item.gtin,
+                                NewPrice = Convert.ToDecimal(priceshapeScraper.clear_price),
+                                NewPriceTime = DateTime.Now,
+                                LastPriceTime = Convert.ToDateTime("01-01-1970")
+                            };
+                            _masterContext.Add(competitorPrices);
+                        }
+                        else
+                        {
+                            competorPrice.LastPrice = competorPrice.NewPrice;
+                            competorPrice.LastPriceTime = competorPrice.NewPriceTime;
+                            competorPrice.NewPrice = Convert.ToDecimal(priceshapeScraper.clear_price);
+                            competorPrice.NewPriceTime = DateTime.Now;
+                            _masterContext.Update(competorPrice);
                         }
                     }
                 }
-                context.SaveChanges();
+                _masterContext.SaveChanges();
             }
         }
 
@@ -148,11 +140,13 @@ namespace AO.PriceAdjustments.Services
         /// Here we take all CompetitorPrices with new price since last time and add to _newPricedItems
         /// </summary>
         public void GetNewPricedItems()
-        {            
-            using (var context = new MasterContext())
-            {
-                _newPricedItems = context.CompetitorPrices.Where(c => c.NewPrice != c.LastPrice).ToList();
-            }            
+        {
+            _newPricedItems = _masterContext.CompetitorPrices.Where(c => c.NewPrice != c.LastPrice).ToList();
+        }
+
+        public void GetOwnItems()
+        {
+            
         }
     }
 }

@@ -26,5 +26,10 @@
         /// <para>We also move the former new price to last price column.</para>
         /// </summary>
         void SaveCompetitorPrices();
+
+        /// <summary>
+        /// Getting products from our own database for those in question
+        /// </summary>
+        void GetOwnItems();
     }
 }
