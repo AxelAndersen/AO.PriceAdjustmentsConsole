@@ -1,4 +1,5 @@
-﻿using AO.PriceAdjustments.Data;
+﻿using AO.PriceAdjustments.Common;
+using AO.PriceAdjustments.Data;
 using AO.PriceAdjustments.Data.Friliv;
 using AO.PriceAdjustments.Models;
 using Microsoft.Extensions.Configuration;
@@ -23,6 +24,8 @@ namespace AO.PriceAdjustments.Services
         private List<Products> _allFrilivProducts = null;
         private List<Products> _frilivProductsWithNewPrices = null;
         private List<Products> _frilivProductsWithCampaignPrice = null;
+        private List<Products> _frilivProductsWithAdjustmentNotAllowed = null;
+        private List<Products> _frilivProductsWithStoppedByBarrier = null;
         private List<ProductIdWithEAN> _frilivProductIdWithEANs = null;
         private ILogger<PriceService> _logger;
         private MasterContext _masterContext;
@@ -265,7 +268,7 @@ namespace AO.PriceAdjustments.Services
 
         private void AdjustPrice(CompetitorPrices competitorPrice, Products product, CompetitorPriceAdjustments competitorPriceAdjustment, decimal retailPrice, bool newOffer)
         {
-            if (competitorPrice.NewPrice > competitorPriceAdjustment.CurrentPrice && competitorPriceAdjustment.AllowAutomaticUp)
+            if (competitorPrice.NewPrice > competitorPriceAdjustment.CurrentPrice)
             {
                 if (competitorPriceAdjustment.SafetyBarrier > 0)
                 {
@@ -273,14 +276,68 @@ namespace AO.PriceAdjustments.Services
                     decimal margin = ((competitorPrice.NewPrice - competitorPriceAdjustment.CurrentPrice) / competitorPriceAdjustment.CurrentPrice) * 100;
                     if (margin > competitorPriceAdjustment.SafetyBarrier)
                     {
+                        if(_frilivProductsWithStoppedByBarrier == null)
+                        {
+                            _frilivProductsWithStoppedByBarrier = new List<Products>();
+                        }
+                        _frilivProductsWithStoppedByBarrier.Add(product);
                         return;
                     }
                 }
 
-                if (retailPrice <= competitorPrice.NewPrice)
+                if (competitorPriceAdjustment.AllowAutomaticUp == false)
                 {
-                    // If we let the price go up and it will be more than our retail price, just let the retail price take over
-                    product.OfferEndDate = DateTime.Now.AddDays(-1);
+                    if (_frilivProductsWithAdjustmentNotAllowed == null)
+                    {
+                        _frilivProductsWithAdjustmentNotAllowed = new List<Products>();
+                    }
+                    _frilivProductsWithAdjustmentNotAllowed.Add(product);
+                }
+                else
+                {
+                    if (retailPrice <= competitorPrice.NewPrice)
+                    {
+                        // If we let the price go up and it will be more than our retail price, just let the retail price take over
+                        product.OfferEndDate = DateTime.Now.AddDays(-1);
+                    }
+                    else
+                    {
+                        // The price should go up and we are allowed to go up automatically
+                        product.OfferPriceDKK = competitorPrice.NewPrice;
+                        if (newOffer)
+                        {
+                            product.OfferEndDate = DateTime.Now.AddDays(DaysToSetNewOffer);
+                        }
+                    }
+                    _frilivContext.Update(product);
+                    _frilivContext.SaveChanges();
+                    _adjustedPrices.Add(competitorPrice);
+                }
+            }
+            else if (competitorPrice.NewPrice < competitorPriceAdjustment.CurrentPrice)
+            {
+                if (competitorPriceAdjustment.SafetyBarrier > 0)
+                {
+                    // We don not adjust prices if larger than safety barrier
+                    decimal margin = ((competitorPriceAdjustment.CurrentPrice - competitorPrice.NewPrice) / competitorPriceAdjustment.CurrentPrice) * 100;
+                    if (margin > competitorPriceAdjustment.SafetyBarrier)
+                    {
+                        if (_frilivProductsWithStoppedByBarrier == null)
+                        {
+                            _frilivProductsWithStoppedByBarrier = new List<Products>();
+                        }
+                        _frilivProductsWithStoppedByBarrier.Add(product);
+                        return;
+                    }
+                }
+
+                if (competitorPriceAdjustment.AllowAutomaticDown == false)
+                {
+                    if (_frilivProductsWithAdjustmentNotAllowed == null)
+                    {
+                        _frilivProductsWithAdjustmentNotAllowed = new List<Products>();
+                    }
+                    _frilivProductsWithAdjustmentNotAllowed.Add(product);
                 }
                 else
                 {
@@ -290,32 +347,10 @@ namespace AO.PriceAdjustments.Services
                     {
                         product.OfferEndDate = DateTime.Now.AddDays(DaysToSetNewOffer);
                     }
+                    _frilivContext.Update(product);
+                    _frilivContext.SaveChanges();
+                    _adjustedPrices.Add(competitorPrice);
                 }
-                _frilivContext.Update(product);
-                _frilivContext.SaveChanges();
-                _adjustedPrices.Add(competitorPrice);
-            }
-            else if (competitorPrice.NewPrice < competitorPriceAdjustment.CurrentPrice && competitorPriceAdjustment.AllowAutomaticDown)
-            {
-                if (competitorPriceAdjustment.SafetyBarrier > 0)
-                {
-                    // We don not adjust prices if larger than safety barrier
-                    decimal margin = ((competitorPriceAdjustment.CurrentPrice - competitorPrice.NewPrice) / competitorPriceAdjustment.CurrentPrice) * 100;
-                    if (margin > competitorPriceAdjustment.SafetyBarrier)
-                    {
-                        return;
-                    }
-                }
-
-                // The price should go up and we are allowed to go up automatically
-                product.OfferPriceDKK = competitorPrice.NewPrice;
-                if (newOffer)
-                {
-                    product.OfferEndDate = DateTime.Now.AddDays(DaysToSetNewOffer);
-                }
-                _frilivContext.Update(product);
-                _frilivContext.SaveChanges();
-                _adjustedPrices.Add(competitorPrice);
             }
         }
 
@@ -323,7 +358,7 @@ namespace AO.PriceAdjustments.Services
         {
             StringBuilder sb = new StringBuilder();
             sb.Append(_config["Status:Header"]);
-            sb.Append("<br />");
+            sb.Append("<br /><br />");
             sb.Append("Prices automatically adjusted:");
             sb.Append("<br />");
 
@@ -339,19 +374,44 @@ namespace AO.PriceAdjustments.Services
                         sb.Append(frilivProduct.Id + " " + frilivProduct.Title);
                         var adjustments = _masterContext.CompetitorPriceAdjustments.Where(c => c.EAN == competitorPrice.EAN).FirstOrDefault();
                         if(adjustments != null)
-                        {
-                            sb.Append(", Before: " + adjustments.CurrentPrice);
+                        {                            
+                            sb.Append(", Price before: " + adjustments.CurrentPrice.Presentation());
                         }
-                        sb.Append(" To: " + competitorPrice.NewPrice);
+                        sb.Append(" changed to: " + competitorPrice.NewPrice.Presentation());
+
+                        var competitor = _masterContext.Competitor.Where(c => c.Id == competitorPrice.CompetitorId).FirstOrDefault();
+                        if (competitor != null)
+                        {
+                            sb.Append(" (" + competitor.CompetitorName + ")");
+                        }
                     }
                     sb.Append("<br />");
                 }                       
             }
-            sb.Append("<br /><hr /><br />");
 
-            sb.Append("Prices not touched due to campaign prices:");        
+            sb.Append("<br /><hr />");
+            sb.Append("Prices not touched due to campaign prices:");
+            sb.Append("<br />");
             // Campaign prices
             foreach (Products product in _frilivProductsWithCampaignPrice)
+            {
+                sb.Append(product.Id + " " + product.Title + "<br />");
+            }
+
+            sb.Append("<br /><hr />");
+            sb.Append("Prices not touched due to automatic adjustment not allowed:");
+            sb.Append("<br />");
+            // Not allowed prices
+            foreach (Products product in _frilivProductsWithAdjustmentNotAllowed)
+            {
+                sb.Append(product.Id + " " + product.Title + "<br />");
+            }
+
+            sb.Append("<br /><hr />");
+            sb.Append("Prices not touched due to barrier:");
+            sb.Append("<br />");
+            // Not allowed prices
+            foreach (Products product in _frilivProductsWithStoppedByBarrier)
             {
                 sb.Append(product.Id + " " + product.Title + "<br />");
             }
