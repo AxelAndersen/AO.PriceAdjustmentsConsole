@@ -359,61 +359,74 @@ namespace AO.PriceAdjustments.Services
             StringBuilder sb = new StringBuilder();
             sb.Append(_config["Status:Header"]);
             sb.Append("<br /><br />");
-            sb.Append("Prices automatically adjusted:");
-            sb.Append("<br />");
 
-            // Prices adjusted
-            foreach (CompetitorPrices competitorPrice in _adjustedPrices)
+            if (_adjustedPrices != null && _adjustedPrices.Count > 0)
             {
-                var frilivItem = _frilivProductIdWithEANs.Where(p => p.EAN == competitorPrice.EAN).FirstOrDefault();
-                if(frilivItem != null)
+                sb.Append("Prices automatically adjusted:");
+                sb.Append("<br />");
+
+                // Prices adjusted
+                foreach (CompetitorPrices competitorPrice in _adjustedPrices)
                 {
-                    var frilivProduct = _frilivContext.Products.Where(p => p.Id == frilivItem.Id).FirstOrDefault();
-                    if(frilivProduct != null)
+                    var frilivItem = _frilivProductIdWithEANs.Where(p => p.EAN == competitorPrice.EAN).FirstOrDefault();
+                    if (frilivItem != null)
                     {
-                        sb.Append(frilivProduct.Id + " " + frilivProduct.Title);
-                        var adjustments = _masterContext.CompetitorPriceAdjustments.Where(c => c.EAN == competitorPrice.EAN).FirstOrDefault();
-                        if(adjustments != null)
-                        {                            
-                            sb.Append(", Price before: " + adjustments.CurrentPrice.Presentation());
-                        }
-                        sb.Append(" changed to: " + competitorPrice.NewPrice.Presentation());
-
-                        var competitor = _masterContext.Competitor.Where(c => c.Id == competitorPrice.CompetitorId).FirstOrDefault();
-                        if (competitor != null)
+                        var frilivProduct = _frilivContext.Products.Where(p => p.Id == frilivItem.Id).FirstOrDefault();
+                        if (frilivProduct != null)
                         {
-                            sb.Append(" (" + competitor.CompetitorName + ")");
+                            sb.Append(frilivProduct.Id + " " + frilivProduct.Title);
+                            var adjustments = _masterContext.CompetitorPriceAdjustments.Where(c => c.EAN == competitorPrice.EAN).FirstOrDefault();
+                            if (adjustments != null)
+                            {
+                                sb.Append(", Price before: " + adjustments.CurrentPrice.Presentation());
+                            }
+                            sb.Append(" changed to: " + competitorPrice.NewPrice.Presentation());
+
+                            var competitor = _masterContext.Competitor.Where(c => c.Id == competitorPrice.CompetitorId).FirstOrDefault();
+                            if (competitor != null)
+                            {
+                                sb.Append(" (" + competitor.CompetitorName + ")");
+                            }
                         }
+                        sb.Append("<br />");
                     }
-                    sb.Append("<br />");
-                }                       
+                }
             }
 
-            sb.Append("<br /><hr />");
-            sb.Append("Prices not touched due to campaign prices:");
-            sb.Append("<br />");
-            // Campaign prices
-            foreach (Products product in _frilivProductsWithCampaignPrice)
+            if (_frilivProductsWithCampaignPrice != null && _frilivProductsWithCampaignPrice.Count > 0)
             {
-                sb.Append(product.Id + " " + product.Title + "<br />");
+                sb.Append("<br /><hr />");
+                sb.Append("Prices not touched due to campaign prices:");
+                sb.Append("<br />");
+                // Campaign prices
+                foreach (Products product in _frilivProductsWithCampaignPrice)
+                {
+                    sb.Append(product.Id + " " + product.Title + "<br />");
+                }
             }
 
-            sb.Append("<br /><hr />");
-            sb.Append("Prices not touched due to automatic adjustment not allowed:");
-            sb.Append("<br />");
-            // Not allowed prices
-            foreach (Products product in _frilivProductsWithAdjustmentNotAllowed)
+            if (_frilivProductsWithAdjustmentNotAllowed != null && _frilivProductsWithAdjustmentNotAllowed.Count > 0)
             {
-                sb.Append(product.Id + " " + product.Title + "<br />");
+                sb.Append("<br /><hr />");
+                sb.Append("Prices not touched due to automatic adjustment not allowed:");
+                sb.Append("<br />");
+                // Not allowed prices
+                foreach (Products product in _frilivProductsWithAdjustmentNotAllowed)
+                {
+                    sb.Append(product.Id + " " + product.Title + "<br />");
+                }
             }
 
-            sb.Append("<br /><hr />");
-            sb.Append("Prices not touched due to barrier:");
-            sb.Append("<br />");
-            // Not allowed prices
-            foreach (Products product in _frilivProductsWithStoppedByBarrier)
+            if (_frilivProductsWithStoppedByBarrier != null && _frilivProductsWithStoppedByBarrier.Count > 0)
             {
-                sb.Append(product.Id + " " + product.Title + "<br />");
+                sb.Append("<br /><hr />");
+                sb.Append("Prices not touched due to barrier:");
+                sb.Append("<br />");
+                // Not allowed prices
+                foreach (Products product in _frilivProductsWithStoppedByBarrier)
+                {
+                    sb.Append(product.Id + " " + product.Title + "<br />");
+                }
             }
 
             _mailService.SendMail("Price adjustment status", sb.ToString(), _config["Status:MailTo"]);
