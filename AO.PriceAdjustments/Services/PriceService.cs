@@ -295,7 +295,7 @@ namespace AO.PriceAdjustments.Services
                 if (competitorPriceAdjustment.SafetyBarrier > 0)
                 {
                     // We don not adjust prices if larger than safety barrier
-                    decimal margin = ((competitorPriceAdjustment.CurrentPrice - competitorPrice.NewPrice) / competitorPrice.NewPrice) * 100;
+                    decimal margin = ((competitorPriceAdjustment.CurrentPrice - competitorPrice.NewPrice) / competitorPriceAdjustment.CurrentPrice) * 100;
                     if (margin > competitorPriceAdjustment.SafetyBarrier)
                     {
                         return;
