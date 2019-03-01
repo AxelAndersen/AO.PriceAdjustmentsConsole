@@ -83,12 +83,19 @@ namespace AO.PriceAdjustments.Services
                         CompetitorPriceAdjustments newPriceAdjustment = new CompetitorPriceAdjustments()
                         {
                             EAN = item.gtin,
-                            ProductName = item.brand + " " + item.title
+                            ProductName = item.brand + " " + item.title,
+                            CurrentPrice = Convert.ToDecimal(item.clear_price)
                         };
 
-                        context.Add(newPriceAdjustment);
-                        context.SaveChanges();
+                        context.Add(newPriceAdjustment);                        
                     }
+                    else
+                    {
+                        priceAdjustment.CurrentPrice = Convert.ToDecimal(item.clear_price);
+                        priceAdjustment.ProductName = item.brand + " " + item.title;
+                        context.Update(priceAdjustment);
+                    }
+                    context.SaveChanges();
                 }
             }
         }
@@ -116,7 +123,7 @@ namespace AO.PriceAdjustments.Services
                                 {
                                     CompetitorId = competitor.Id,
                                     EAN = item.gtin,
-                                    NewPrice = Convert.ToDecimal(priceshapeScraper.price),
+                                    NewPrice = Convert.ToDecimal(priceshapeScraper.clear_price),
                                     NewPriceTime = DateTime.Now,
                                     LastPriceTime = Convert.ToDateTime("01-01-1970")
                                 };
@@ -126,7 +133,7 @@ namespace AO.PriceAdjustments.Services
                             {
                                 competorPrice.LastPrice = competorPrice.NewPrice;
                                 competorPrice.LastPriceTime = competorPrice.NewPriceTime;
-                                competorPrice.NewPrice = Convert.ToDecimal(priceshapeScraper.price);
+                                competorPrice.NewPrice = Convert.ToDecimal(priceshapeScraper.clear_price);
                                 competorPrice.NewPriceTime = DateTime.Now;
                                 context.Update(competorPrice);
                             }

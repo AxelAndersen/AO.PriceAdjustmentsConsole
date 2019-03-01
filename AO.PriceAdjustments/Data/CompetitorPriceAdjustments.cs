@@ -9,6 +9,8 @@ namespace AO.PriceAdjustments.Data
 
         public string ProductName { get; set; }
 
+        public decimal CurrentPrice { get; set; }
+
         public bool AllowAutomaticUp { get; set; }
 
         public bool AllowAutomaticDown { get; set; }

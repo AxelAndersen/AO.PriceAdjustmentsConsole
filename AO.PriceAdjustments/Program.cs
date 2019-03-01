@@ -14,10 +14,14 @@ namespace AO.PriceAdjustments
     {
         private static IServiceProvider _serviceProvider;
         public static IConfigurationRoot Configuration { get; set; }
+        public static ILogger<Program> _logger; 
 
         static void Main(string[] args)
         {
             RegisterServices();
+
+            _logger.LogInformation("AO.PriceAdjustments started");
+
             string errorMessage = "Error calling PriceService constructor";
             try
             {
@@ -39,9 +43,8 @@ namespace AO.PriceAdjustments
             {
                 errorMessage += Environment.NewLine + ex.Message;
                 errorMessage += Environment.NewLine + ex.ToString();
-
-                var logger = _serviceProvider.GetService<ILogger<Program>>();
-                logger.LogError(errorMessage);
+                
+                _logger.LogError(errorMessage);
 
                 var mailService = _serviceProvider.GetService<IMailService>();
                 mailService.SendMail("Error: " + ex.Message, errorMessage, "axel@friliv.dk");
@@ -85,6 +88,8 @@ namespace AO.PriceAdjustments
                         };
                     });
             _serviceProvider = collection.BuildServiceProvider();
+
+            _logger = _serviceProvider.GetService<ILogger<Program>>();
         }
 
         private static void DisposeServices()
