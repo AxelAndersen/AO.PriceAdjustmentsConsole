@@ -10,6 +10,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Mail;
+using System.Text;
 
 namespace AO.PriceAdjustments.Services
 {
@@ -25,7 +26,9 @@ namespace AO.PriceAdjustments.Services
         private List<ProductIdWithEAN> _frilivProductIdWithEANs = null;
         private ILogger<PriceService> _logger;
         private MasterContext _masterContext;
-        private FrilivContext _frilivContext; 
+        private FrilivContext _frilivContext;
+        private List<CompetitorPrices> _adjustedPrices = new List<CompetitorPrices>();
+        private IMailService _mailService;
         #endregion
 
         private int DaysToSetNewOffer
@@ -36,13 +39,14 @@ namespace AO.PriceAdjustments.Services
             }
         }
 
-        public PriceService(ILogger<PriceService> logger, SmtpClient smtpClient, IConfiguration config, MasterContext masterContext, FrilivContext frilivContext)
+        public PriceService(ILogger<PriceService> logger, SmtpClient smtpClient, IConfiguration config, MasterContext masterContext, FrilivContext frilivContext, IMailService mailService)
         {
             var builder = new ConfigurationBuilder().SetBasePath(Directory.GetCurrentDirectory()).AddJsonFile("appsettings.json");
             _config = config;
             _logger = logger;
             _masterContext = masterContext;
             _frilivContext = frilivContext;
+            _mailService = mailService;
         }
 
         /// <summary>
@@ -165,26 +169,6 @@ namespace AO.PriceAdjustments.Services
             }
         }
 
-        private PriceshapeScraper GetLowest(List<PriceshapeScraper> priceshape_scraper)
-        {
-            PriceshapeScraper lowestPrice = null;
-            foreach (PriceshapeScraper scraper in priceshape_scraper)
-            {
-                if (lowestPrice == null)
-                {
-                    lowestPrice = scraper;
-                }
-                else
-                {
-                    if (Convert.ToDecimal(lowestPrice.clear_price) > Convert.ToDecimal(scraper.clear_price))
-                    {
-                        lowestPrice = scraper;
-                    }
-                }
-            }
-            return lowestPrice;
-        }
-
         /// <summary>
         /// Here we take all CompetitorPrices with new price since last time and add to _newPricedItems
         /// </summary>
@@ -233,7 +217,7 @@ namespace AO.PriceAdjustments.Services
                             CompetitorPriceAdjustments competitorPriceAdjustment = _masterContext.CompetitorPriceAdjustments.Where(c => c.EAN == competitorPrice.EAN).FirstOrDefault();
                             if (competitorPriceAdjustment != null)
                             {
-                                if(competitorPriceAdjustment.CurrentPrice == product.RetailPriceDKK)
+                                if (competitorPriceAdjustment.CurrentPrice == product.RetailPriceDKK)
                                 {
                                     // RetailPrice is our current price
                                     AdjustPrice(competitorPrice, product, competitorPriceAdjustment, product.RetailPriceDKK, true);
@@ -244,14 +228,14 @@ namespace AO.PriceAdjustments.Services
                                     AdjustPrice(competitorPrice, product, competitorPriceAdjustment, product.RetailPriceDKK, false);
                                 }
                                 else
-                                { 
+                                {
                                     // Current price must be some CampaignPrice
                                     if (_frilivProductsWithCampaignPrice == null)
                                     {
                                         _frilivProductsWithCampaignPrice = new List<Products>();
                                     }
                                     _frilivProductsWithCampaignPrice.Add(product);
-                                }                               
+                                }
                             }
                         }
                     }
@@ -259,15 +243,35 @@ namespace AO.PriceAdjustments.Services
             }
         }
 
+        private PriceshapeScraper GetLowest(List<PriceshapeScraper> priceshape_scraper)
+        {
+            PriceshapeScraper lowestPrice = null;
+            foreach (PriceshapeScraper scraper in priceshape_scraper)
+            {
+                if (lowestPrice == null)
+                {
+                    lowestPrice = scraper;
+                }
+                else
+                {
+                    if (Convert.ToDecimal(lowestPrice.clear_price) > Convert.ToDecimal(scraper.clear_price))
+                    {
+                        lowestPrice = scraper;
+                    }
+                }
+            }
+            return lowestPrice;
+        }
+
         private void AdjustPrice(CompetitorPrices competitorPrice, Products product, CompetitorPriceAdjustments competitorPriceAdjustment, decimal retailPrice, bool newOffer)
         {
             if (competitorPrice.NewPrice > competitorPriceAdjustment.CurrentPrice && competitorPriceAdjustment.AllowAutomaticUp)
             {
-                if(competitorPriceAdjustment.SafetyBarrier > 0)
+                if (competitorPriceAdjustment.SafetyBarrier > 0)
                 {
                     // We don not adjust prices if larger than safety barrier
                     decimal margin = ((competitorPrice.NewPrice - competitorPriceAdjustment.CurrentPrice) / competitorPriceAdjustment.CurrentPrice) * 100;
-                    if(margin > competitorPriceAdjustment.SafetyBarrier)
+                    if (margin > competitorPriceAdjustment.SafetyBarrier)
                     {
                         return;
                     }
@@ -289,8 +293,9 @@ namespace AO.PriceAdjustments.Services
                 }
                 _frilivContext.Update(product);
                 _frilivContext.SaveChanges();
+                _adjustedPrices.Add(competitorPrice);
             }
-            else if(competitorPrice.NewPrice < competitorPriceAdjustment.CurrentPrice && competitorPriceAdjustment.AllowAutomaticDown)
+            else if (competitorPrice.NewPrice < competitorPriceAdjustment.CurrentPrice && competitorPriceAdjustment.AllowAutomaticDown)
             {
                 if (competitorPriceAdjustment.SafetyBarrier > 0)
                 {
@@ -310,7 +315,48 @@ namespace AO.PriceAdjustments.Services
                 }
                 _frilivContext.Update(product);
                 _frilivContext.SaveChanges();
+                _adjustedPrices.Add(competitorPrice);
             }
+        }
+
+        public void SendStatusMail()
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.Append(_config["Status:Header"]);
+            sb.Append("<br />");
+            sb.Append("Prices automatically adjusted:");
+            sb.Append("<br />");
+
+            // Prices adjusted
+            foreach (CompetitorPrices competitorPrice in _adjustedPrices)
+            {
+                var frilivItem = _frilivProductIdWithEANs.Where(p => p.EAN == competitorPrice.EAN).FirstOrDefault();
+                if(frilivItem != null)
+                {
+                    var frilivProduct = _frilivContext.Products.Where(p => p.Id == frilivItem.Id).FirstOrDefault();
+                    if(frilivProduct != null)
+                    {
+                        sb.Append(frilivProduct.Id + " " + frilivProduct.Title);
+                        var adjustments = _masterContext.CompetitorPriceAdjustments.Where(c => c.EAN == competitorPrice.EAN).FirstOrDefault();
+                        if(adjustments != null)
+                        {
+                            sb.Append(", Before: " + adjustments.CurrentPrice);
+                        }
+                        sb.Append(" To: " + competitorPrice.NewPrice);
+                    }
+                    sb.Append("<br />");
+                }                       
+            }
+            sb.Append("<br /><hr /><br />");
+
+            sb.Append("Prices not touched due to campaign prices:");        
+            // Campaign prices
+            foreach (Products product in _frilivProductsWithCampaignPrice)
+            {
+                sb.Append(product.Id + " " + product.Title + "<br />");
+            }
+
+            _mailService.SendMail("Price adjustment status", sb.ToString(), _config["Status:MailTo"]);
         }
     }
 }

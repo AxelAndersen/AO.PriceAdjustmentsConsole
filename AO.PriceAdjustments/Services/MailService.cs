@@ -29,6 +29,8 @@ namespace AO.PriceAdjustments.Services
                  subject: subject,
                  body: body);
 
+                msg.IsBodyHtml = true;
+
                 await _smtpClient.SendMailAsync(msg);
 
             });

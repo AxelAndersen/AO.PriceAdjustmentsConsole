@@ -44,6 +44,9 @@
         /// </summary>
         void AdjustPrices();
 
+
+        void SendStatusMail();
+
         /// <summary>
         /// Used prepare CompetitorPrices table. 
         /// <para>Here we set the LastPrcie to NewPrice to be ready for this run</para>

@@ -10,6 +10,7 @@ using System;
 using System.IO;
 using System.Net;
 using System.Net.Mail;
+using System.Text;
 
 namespace AO.PriceAdjustments
 {
@@ -53,6 +54,8 @@ namespace AO.PriceAdjustments
 
                 errorMessage = "Error adjusting prices";
                 priceService.AdjustPrices();
+
+                priceService.SendStatusMail();
             }
             catch (Exception ex)
             {
