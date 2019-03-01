@@ -28,8 +28,26 @@
         void SaveCompetitorPrices();
 
         /// <summary>
-        /// Getting products from our own database for those in question
+        /// Getting products from our own database to use for updating prices
         /// </summary>
         void GetOwnItems();
+
+        /// <summary>
+        /// Getting a combination of Friliv ProductId and EAN
+        /// </summary>
+        void GetFrilivProductIdWithEANs();
+
+        /// <summary>
+        /// Getting the Friliv products which are in the list of NewPricedItems
+        /// <para>Furthermore it will split products up in CampaignPriced and regular prices (Retail or offer)</para>
+        /// <para>Lastly it will adjust prices when its allowed</para>
+        /// </summary>
+        void AdjustPrices();
+
+        /// <summary>
+        /// Used prepare CompetitorPrices table. 
+        /// <para>Here we set the LastPrcie to NewPrice to be ready for this run</para>
+        /// </summary>
+        void PreparePrices();        
     }
 }

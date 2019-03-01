@@ -1,4 +1,5 @@
 ﻿using AO.PriceAdjustments.Data;
+using AO.PriceAdjustments.Data.Friliv;
 using AO.PriceAdjustments.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -35,13 +36,23 @@ namespace AO.PriceAdjustments
                 errorMessage = "Error ensuring all data exist in MasterDatabase";
                 priceService.EnsureAllEntitiesExist();
 
+                errorMessage = "Error praparing CompetitorPrices";
+                //priceService.PreparePrices();
+
                 errorMessage = "Error saving prices to CompetitorPrices in MasterDatabase";
                 priceService.SaveCompetitorPrices();
 
                 errorMessage = "Error getting new priced items";
                 priceService.GetNewPricedItems();
 
+                errorMessage = "Error getting new own items";
                 priceService.GetOwnItems();
+
+                errorMessage = "Error getting ProductIdWithEANs";
+                priceService.GetFrilivProductIdWithEANs();
+
+                errorMessage = "Error adjusting prices";
+                priceService.AdjustPrices();
             }
             catch (Exception ex)
             {
@@ -91,7 +102,8 @@ namespace AO.PriceAdjustments
                                                     config.GetValue<String>("Email:Smtp:Password"))
                         };
                     })                
-                .AddDbContext<MasterContext>(options => options.UseSqlServer(Configuration["General:MasterDatabaseConnection"]));
+                .AddDbContext<MasterContext>(options => options.UseSqlServer(Configuration["General:MasterDatabaseConnection"]))
+                .AddDbContext<FrilivContext>(options => options.UseSqlServer(Configuration["General:FrilivDatabaseConnection"]));
             ;
             _serviceProvider = collection.BuildServiceProvider();
 

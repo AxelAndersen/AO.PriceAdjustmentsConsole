@@ -1,7 +1,7 @@
 ﻿using AO.PriceAdjustments.Data;
+using AO.PriceAdjustments.Data.Friliv;
 using AO.PriceAdjustments.Models;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using System;
@@ -10,25 +10,31 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Mail;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace AO.PriceAdjustments.Services
 {
     public class PriceService : IPriceService
     {
+        #region Private variables
         private IConfiguration _config;
         private RootObject _root;
         private List<CompetitorPrices> _newPricedItems = null;
+        private List<Products> _allFrilivProducts = null;
+        private List<Products> _frilivProductsWithNewPrices = null;
+        private List<Products> _frilivProductsWithCampaignPrice = null;
+        private List<ProductIdWithEAN> _frilivProductIdWithEANs = null;
         private ILogger<PriceService> _logger;
         private MasterContext _masterContext;
+        private FrilivContext _frilivContext; 
+        #endregion
 
-        public PriceService(ILogger<PriceService> logger, SmtpClient smtpClient, IConfiguration config, MasterContext masterContext)
+        public PriceService(ILogger<PriceService> logger, SmtpClient smtpClient, IConfiguration config, MasterContext masterContext, FrilivContext frilivContext)
         {
             var builder = new ConfigurationBuilder().SetBasePath(Directory.GetCurrentDirectory()).AddJsonFile("appsettings.json");
-            _config = config; // new ConfigurationBuilder().AddJsonFile("appsettings.json", true, true).Build();
+            _config = config;
             _logger = logger;
             _masterContext = masterContext;
+            _frilivContext = frilivContext;
         }
 
         /// <summary>
@@ -37,7 +43,7 @@ namespace AO.PriceAdjustments.Services
         /// <para>We end up deserializing the json to RootObject containing all products and prices</para>
         /// </summary>
         public void GetData()
-        {            
+        {
             string path = _config["General:PriceShape.JsonPath"];
             string json = string.Empty;
 
@@ -91,8 +97,23 @@ namespace AO.PriceAdjustments.Services
                     _masterContext.Update(priceAdjustment);
                 }
                 _masterContext.SaveChanges();
-
             }
+        }
+
+        /// <summary>
+        /// Used prepare CompetitorPrices table. 
+        /// <para>Here we set the LastPrcie to NewPrice to be ready for this run</para>
+        /// </summary>
+        public void PreparePrices()
+        {
+            var allCompetitorPrices = _masterContext.CompetitorPrices.ToList();
+            foreach (CompetitorPrices competitorPrice in allCompetitorPrices)
+            {
+                competitorPrice.LastPrice = competitorPrice.NewPrice;
+                competitorPrice.LastPriceTime = competitorPrice.NewPriceTime;
+                _masterContext.Update(competitorPrice);
+            }
+            _masterContext.SaveChanges();
         }
 
         /// <summary>
@@ -104,8 +125,10 @@ namespace AO.PriceAdjustments.Services
         {
             foreach (Item item in _root.items)
             {
-                foreach (PriceshapeScraper priceshapeScraper in item.priceshape_scraper)
+                if (item.priceshape_scraper != null && item.priceshape_scraper.Count > 0)
                 {
+                    PriceshapeScraper priceshapeScraper = GetLowest(item.priceshape_scraper);
+
                     var competitor = _masterContext.Competitor.Where(c => c.CompetitorName == priceshapeScraper.name).FirstOrDefault();
                     if (competitor != null)
                     {
@@ -124,16 +147,34 @@ namespace AO.PriceAdjustments.Services
                         }
                         else
                         {
-                            competorPrice.LastPrice = competorPrice.NewPrice;
-                            competorPrice.LastPriceTime = competorPrice.NewPriceTime;
                             competorPrice.NewPrice = Convert.ToDecimal(priceshapeScraper.clear_price);
                             competorPrice.NewPriceTime = DateTime.Now;
-                            _masterContext.Update(competorPrice);
+                            _masterContext.CompetitorPrices.Update(competorPrice);
                         }
                     }
+                    _masterContext.SaveChanges();
                 }
-                _masterContext.SaveChanges();
             }
+        }
+
+        private PriceshapeScraper GetLowest(List<PriceshapeScraper> priceshape_scraper)
+        {
+            PriceshapeScraper lowestPrice = null;
+            foreach (PriceshapeScraper scraper in priceshape_scraper)
+            {
+                if (lowestPrice == null)
+                {
+                    lowestPrice = scraper;
+                }
+                else
+                {
+                    if (Convert.ToDecimal(lowestPrice.clear_price) > Convert.ToDecimal(scraper.clear_price))
+                    {
+                        lowestPrice = scraper;
+                    }
+                }
+            }
+            return lowestPrice;
         }
 
         /// <summary>
@@ -144,9 +185,104 @@ namespace AO.PriceAdjustments.Services
             _newPricedItems = _masterContext.CompetitorPrices.Where(c => c.NewPrice != c.LastPrice).ToList();
         }
 
+        /// <summary>
+        /// Getting products from our own database to use for updating prices
+        /// </summary>
         public void GetOwnItems()
         {
-            
+            _allFrilivProducts = _frilivContext.Products.Where(p => p.ProductStatusId == 1).ToList();
+        }
+
+        /// <summary>
+        /// Getting a combination of Friliv ProductId and EAN
+        /// </summary>
+        public void GetFrilivProductIdWithEANs()
+        {
+            _frilivProductIdWithEANs = _frilivContext.ProductIdWithEANs.ToList();
+        }
+
+        /// <summary>
+        /// Getting the Friliv products which are in the list of NewPricedItems
+        /// <para>Furthermore it will split products up in CampaignPriced and regular prices (Retail or offer)</para>
+        /// <para>Lastly it will adjust prices when its allowed</para>
+        /// </summary>
+        public void AdjustPrices()
+        {
+            if (_newPricedItems != null && _newPricedItems.Count > 0)
+            {
+                _frilivProductsWithNewPrices = new List<Products>();
+
+                foreach (CompetitorPrices competitorPrice in _newPricedItems)
+                {
+                    int productId = _frilivProductIdWithEANs.Where(p => p.EAN == competitorPrice.EAN).Select(p => p.Id).FirstOrDefault();
+                    if (productId > 0)
+                    {
+                        Products product = _allFrilivProducts.Where(p => p.Id == productId).FirstOrDefault();
+                        if (product != null)
+                        {
+                            _frilivProductsWithNewPrices.Add(product);
+
+                            CompetitorPriceAdjustments competitorPriceAdjustment = _masterContext.CompetitorPriceAdjustments.Where(c => c.EAN == competitorPrice.EAN).FirstOrDefault();
+                            if (competitorPriceAdjustment != null)
+                            {
+                                if(competitorPriceAdjustment.CurrentPrice == product.RetailPriceDKK)
+                                {
+                                    // RetailPrice is our current price
+                                    AdjustPrice(competitorPrice, product, competitorPriceAdjustment, product.RetailPriceDKK, true);
+                                }
+                                else if (competitorPriceAdjustment.CurrentPrice == product.OfferPriceDKK)
+                                {
+                                    // OfferPrice is our current price
+                                    AdjustPrice(competitorPrice, product, competitorPriceAdjustment, product.RetailPriceDKK, false);
+                                }
+                                else
+                                { 
+                                    // Current price must be some CampaignPrice
+                                    if (_frilivProductsWithCampaignPrice == null)
+                                    {
+                                        _frilivProductsWithCampaignPrice = new List<Products>();
+                                    }
+                                    _frilivProductsWithCampaignPrice.Add(product);
+                                }                               
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        private void AdjustPrice(CompetitorPrices competitorPrice, Products product, CompetitorPriceAdjustments competitorPriceAdjustment, decimal retailPrice, bool newOffer)
+        {
+            if (competitorPrice.NewPrice > competitorPriceAdjustment.CurrentPrice && competitorPriceAdjustment.AllowAutomaticUp)
+            {
+                if (retailPrice <= competitorPrice.NewPrice)
+                {
+                    // If we let the price go up and it will be more than our retail price, just let the retail price take over
+                    product.OfferEndDate = DateTime.Now.AddDays(-1);
+                }
+                else
+                {
+                    // The price should go up and we are allowed to go up automatically
+                    product.OfferPriceDKK = competitorPrice.NewPrice;
+                    if (newOffer)
+                    {
+                        product.OfferEndDate = DateTime.Now.AddDays(30);
+                    }
+                }
+                _frilivContext.Update(product);
+                _frilivContext.SaveChanges();
+            }
+            else if(competitorPrice.NewPrice < competitorPriceAdjustment.CurrentPrice && competitorPriceAdjustment.AllowAutomaticDown)
+            {
+                // The price should go up and we are allowed to go up automatically
+                product.OfferPriceDKK = competitorPrice.NewPrice;
+                if (newOffer)
+                {
+                    product.OfferEndDate = DateTime.Now.AddDays(30);
+                }
+                _frilivContext.Update(product);
+                _frilivContext.SaveChanges();
+            }
         }
     }
 }
