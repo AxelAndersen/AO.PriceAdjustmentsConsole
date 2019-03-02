@@ -44,7 +44,9 @@
         /// </summary>
         void AdjustPrices();
 
-
+        /// <summary>
+        /// Send mail with status of adjustments and why some have been omitted
+        /// </summary>
         void SendStatusMail();
 
         /// <summary>

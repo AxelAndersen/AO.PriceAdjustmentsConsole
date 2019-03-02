@@ -38,7 +38,7 @@ namespace AO.PriceAdjustments
                 priceService.EnsureAllEntitiesExist();
 
                 errorMessage = "Error praparing CompetitorPrices";
-                //priceService.PreparePrices();
+                priceService.PreparePrices();
 
                 errorMessage = "Error saving prices to CompetitorPrices in MasterDatabase";
                 priceService.SaveCompetitorPrices();
@@ -55,6 +55,7 @@ namespace AO.PriceAdjustments
                 errorMessage = "Error adjusting prices";
                 priceService.AdjustPrices();
 
+                errorMessage = "Error sending status mail";
                 priceService.SendStatusMail();
             }
             catch (Exception ex)
